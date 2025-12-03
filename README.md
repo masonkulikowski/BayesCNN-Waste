@@ -4,12 +4,20 @@ at the University of Delaware.
 
 ## Models
 
-### Convoulutional Neural Network
+### Convolutional Neural Network
 
 ### Bayes Classifier
 
 ## Running the Models
-
-'''bash
+Create a virtual environment
+```
 conda create -n bayescnn python=3.11
-'''
+```
+Activate
+```
+conda activate bayescnn
+```
+Install Dependicies
+```
+pip install -r requirements.txt
+```
