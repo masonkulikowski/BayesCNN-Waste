@@ -11,13 +11,9 @@ at the University of Delaware.
 ## Running the Models
 Create a virtual environment
 ```
-conda create -n bayescnn python=3.11
+conda env create -f environment.yml 
 ```
 Activate
 ```
 conda activate bayescnn
-```
-Install Dependicies
-```
-pip install -r requirements.txt
 ```
