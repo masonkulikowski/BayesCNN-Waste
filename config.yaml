@@ -1,0 +1,84 @@
+# Project Configuration
+project:
+  name: "WasteVision"
+  random_seed: 42
+  device: "cuda"
+
+data:
+  dataset_name: "garythung/trashnet"
+  num_classes: 6
+  classes: ["cardboard", "glass", "metal", "paper", "plastic", "trash"]
+  image_size: 224
+  train_split: 0.7
+  val_split: 0.15
+  test_split: 0.15
+
+augmentation:
+  enabled: true
+  rotation: 15
+  horizontal_flip: true
+  vertical_flip: false
+  brightness: 0.2
+  contrast: 0.2
+
+normalization:
+  mean: [0.485, 0.456, 0.406]
+  std: [0.229, 0.224, 0.225]
+
+bayes:
+  features:
+    - "color_histogram"
+    - "hog"
+  color_bins: 32
+  hog_orientations: 9
+  hog_pixels_per_cell: [8, 8]
+  hog_cells_per_block: [2, 2]
+
+cnn:
+  architecture: "resnet18"
+  pretrained: true
+  freeze_backbone: false
+  dropout: 0.5
+
+custom_cnn:
+  conv_channels: [32, 64, 128, 256]
+  kernel_size: 3
+  pool_size: 2
+  fc_hidden: 512
+
+training:
+  epochs: 50
+  batch_size: 16
+  learning_rate: 0.001
+  optimizer: "adam"
+  momentum: 0.9
+  weight_decay: 0.0001
+  
+  scheduler:
+    enabled: true
+    type: "step"
+    step_size: 10
+    gamma: 0.1
+  
+  early_stopping:
+    enabled: true
+    patience: 10
+    min_delta: 0.001
+
+evaluation:
+  metrics: ["accuracy", "precision", "recall", "f1"]
+  save_confusion_matrix: true
+  save_misclassifications: true
+  num_misclass_examples: 10
+
+paths:
+  data_dir: "data"
+  processed_dir: "data/processed"
+  splits_dir: "data/splits"
+  models_dir: "models"
+  results_dir: "results"
+  logs_dir: "logs"
+
+logging:
+  level: "INFO"
+  save_logs: true
