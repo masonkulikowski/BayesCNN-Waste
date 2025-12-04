@@ -29,6 +29,12 @@ class TrashNetDataset(Dataset):
         return image, label
 
 def load_data(split_data=True):
+    """
+    Loads Trashnet dataset and either returns full dataset
+    or split dataset based on train/val/test ratios in config.
+    
+    :param split_data: Whether or not to split the dataset.
+    """
     dataset_name = config['data']['dataset_name']
 
     ds = load_dataset(dataset_name)
@@ -48,7 +54,6 @@ def load_data(split_data=True):
     val_dataset = val_test_split['train']
     test_dataset = val_test_split['test']
 
-    print(f"Split sizes - Train: {len(train_dataset)}, Val:{len(val_dataset)}, Test: {len(test_dataset)}")
     return train_dataset, val_dataset, test_dataset
 
 def get_class_dist(dataset):
