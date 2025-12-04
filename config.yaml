@@ -1,8 +1,8 @@
 # Project Configuration
 project:
-  name: "WasteVision"
+  name: "BayesCNN-Waste"
   random_seed: 42
-  device: "cuda"
+  device: "cpu"
 
 data:
   dataset_name: "garythung/trashnet"
