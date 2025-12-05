@@ -1,3 +1,4 @@
 data/processed
 data/splits
 __pycache__/
+*/logs/

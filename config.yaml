@@ -26,13 +26,23 @@ normalization:
   std: [0.229, 0.224, 0.225]
 
 bayes:
-  features:
-    - "color_histogram"
-    - "hog"
-  color_bins: 32
-  hog_orientations: 9
-  hog_pixels_per_cell: [8, 8]
-  hog_cells_per_block: [2, 2]
+  lbp_bins: 16
+  lbp_radius: 1
+  lbp_points: 8
+
+  use_balanced_priors: false  # Use balanced class priors instead of empirical
+
+  # Feature optimization options
+  use_single_scale_lbp: true  # Use only radius=2 LBP (56 features vs 88)
+  apply_pca: true              # Apply PCA dimensionality reduction
+  pca_components: 20           # Number of PCA components
+  apply_box_cox: false         # DISABLED: Conflicts with negative transparency features
+  remove_correlated: false     # Remove highly correlated features
+  correlation_threshold: 0.9   # Correlation threshold for removal
+
+  # Model options
+  use_multinomial: false       # Use MultinomialNB instead of GaussianNB
+  use_trash_rules: false       # Use rule-based fallback for trash class
 
 cnn:
   architecture: "resnet18"
