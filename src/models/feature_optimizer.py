@@ -234,12 +234,12 @@ def remove_features(X, indices_to_remove):
     return X[:, mask]
 
 
-def get_feature_names():
+def get_feature_names(use_single_scale_lbp=True):
     """
-    Get names for all 85 features.
+    Get names for all features (52 optimized features).
 
     Returns:
-        List of feature names
+        List of feature names (52 total)
     """
     names = []
 
@@ -247,8 +247,8 @@ def get_feature_names():
     names.extend(['hsv_mean_h', 'hsv_mean_s', 'hsv_mean_v',
                   'hsv_std_h', 'hsv_std_s', 'hsv_std_v'])
 
-    # Texture - LBP single scale (16)
-    names.extend([f'lbp_r1_bin{i}' for i in range(16)])
+    # Texture - LBP from extract_texture_features (16)
+    names.extend([f'lbp_texture_bin{i}' for i in range(16)])
 
     # Haralick (3)
     names.extend(['haralick_contrast', 'haralick_energy', 'haralick_homogeneity'])
@@ -256,19 +256,21 @@ def get_feature_names():
     # Shape (4)
     names.extend(['aspect_ratio', 'hu_moment_1', 'hu_moment_2', 'hu_moment_3'])
 
-    # Specular (3)
-    names.extend(['bright_pixel_ratio', 'highlight_sharpness', 'highlight_contrast'])
+    # Specular (2 - OPTIMIZED from 6)
+    names.extend(['specular_highlight_contrast', 'specular_gradient_concentration'])
 
-    # Transparency (3)
-    names.extend(['interior_texture_var', 'edge_entropy', 'saturation_edge_drop'])
+    # Metal (1 - OPTIMIZED from 2)
+    names.extend(['metal_reflection_directionality'])
 
-    # Spatial (2)
-    names.extend(['lr_brightness_var_diff', 'tb_brightness_var_diff'])
+    # Glass (3 - OPTIMIZED from 4)
+    names.extend(['glass_brightness_gradient', 'glass_high_freq_energy',
+                  'glass_saturation_uniformity'])
 
-    # Multi-scale LBP (48)
-    names.extend([f'lbp_r1_ms_bin{i}' for i in range(16)])
+    # Trash (1 - OPTIMIZED from 4)
+    names.extend(['trash_texture_chaos'])
+
+    # Single-scale LBP radius=2 (16) - ALWAYS single-scale
     names.extend([f'lbp_r2_bin{i}' for i in range(16)])
-    names.extend([f'lbp_r3_bin{i}' for i in range(16)])
 
     return names
 
