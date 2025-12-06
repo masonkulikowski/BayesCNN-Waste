@@ -1,5 +1,6 @@
 import numpy as np
 from sklearn.naive_bayes import GaussianNB, MultinomialNB
+from sklearn.multiclass import OneVsRestClassifier
 from sklearn.preprocessing import StandardScaler, MinMaxScaler, PowerTransformer
 from sklearn.decomposition import PCA
 from sklearn.metrics import accuracy_score, precision_recall_fscore_support, confusion_matrix
@@ -145,9 +146,10 @@ class BayesFeatureExtractor:
         """
         Extract specular reflection features (for metal detection).
 
+        Optimized: Returns only the 2 most discriminative features.
+
         Returns:
-            6 features: bright_pixel_ratio, highlight_sharpness, highlight_contrast,
-                       edge_sharpness, highlight_distribution, gradient_concentration
+            2 features: highlight_contrast, gradient_concentration
         """
         if isinstance(image, Image.Image):
             image = np.array(image)
@@ -221,21 +223,20 @@ class BayesFeatureExtractor:
         else:
             gradient_concentration = 0.0
 
+        # Return only the 2 most discriminative features
         return np.array([
-            bright_pixel_ratio,
-            highlight_sharpness,
             highlight_contrast,
-            edge_sharpness,
-            highlight_distribution,
             gradient_concentration
         ])
 
-    def extract_transparency_features(self, image):
+    def extract_glass_features(self, image):
         """
-        Extract transparency features (for glass detection).
+        Extract improved glass detection features.
+
+        Optimized: Removed unstable Canny edge ratios, kept smooth gradient-based features.
 
         Returns:
-            3 features: interior_texture_variance, edge_entropy, saturation_edge_drop
+            3 features: brightness_gradient_smoothness, high_freq_energy, saturation_uniformity
         """
         if isinstance(image, Image.Image):
             image = np.array(image)
@@ -247,41 +248,108 @@ class BayesFeatureExtractor:
         gray_uint8 = (gray * 255).astype(np.uint8) if gray.max() <= 1.0 else gray.astype(np.uint8)
         hsv = cv2.cvtColor(image, cv2.COLOR_RGB2HSV)
 
-        # 1. Interior texture variance (LBP variance in interior region)
-        # Define interior as central 50% of image
+        # 1. Brightness gradient smoothness - glass shows smooth center-to-edge transitions
         h, w = gray_uint8.shape
-        interior = gray_uint8[h//4:3*h//4, w//4:3*w//4]
-
-        if interior.size > 0:
-            lbp_interior = local_binary_pattern(
-                interior,
-                P=self.lbp_points,
-                R=self.lbp_radius,
-                method='uniform'
-            )
-            interior_texture_variance = np.var(lbp_interior)
+        center = gray_uint8[h//4:3*h//4, w//4:3*w//4].mean()
+        edges_brightness = np.concatenate([
+            gray_uint8[0:h//4, :].ravel(),
+            gray_uint8[3*h//4:, :].ravel()
+        ])
+        if len(edges_brightness) > 0:
+            edges_mean = edges_brightness.mean()
+            brightness_gradient_smoothness = abs(center - edges_mean) / 255.0
         else:
-            interior_texture_variance = 0.0
+            brightness_gradient_smoothness = 0.0
 
-        # 2. Edge entropy
-        edges = cv2.Canny(gray_uint8, 50, 150)
-        edge_hist, _ = np.histogram(edges.ravel(), bins=256, range=(0, 256), density=True)
-        # Calculate entropy
-        edge_hist = edge_hist[edge_hist > 0]  # Remove zeros
-        edge_entropy = -np.sum(edge_hist * np.log2(edge_hist + 1e-10))
+        # 2. High-frequency texture energy via FFT - glass has minimal high-freq content
+        f_transform = np.fft.fft2(gray)
+        f_shift = np.fft.fftshift(f_transform)
+        magnitude = np.abs(f_shift)
+        h, w = magnitude.shape
 
-        # 3. Saturation edge drop (saturation difference at edges)
-        saturation = hsv[:, :, 1].astype(float)
-        edge_mask = edges > 0
+        # Create mask for high frequencies (outer 30% of spectrum)
+        cy, cx = h // 2, w // 2
+        y, x = np.ogrid[:h, :w]
+        radius_sq = (0.3 * min(h, w)) ** 2
+        mask = ((y - cy) ** 2 + (x - cx) ** 2) >= radius_sq
 
-        if np.any(edge_mask):
-            edge_saturation = np.mean(saturation[edge_mask])
-            non_edge_saturation = np.mean(saturation[~edge_mask])
-            saturation_edge_drop = non_edge_saturation - edge_saturation
-        else:
-            saturation_edge_drop = 0.0
+        high_freq_energy = np.sum(magnitude * mask) / (np.sum(magnitude) + 1e-6)
 
-        return np.array([interior_texture_variance, edge_entropy, saturation_edge_drop])
+        # 3. Saturation uniformity - glass has consistently low saturation
+        saturation = hsv[:, :, 1].astype(float) / 255.0
+        saturation_uniformity = 1.0 / (np.std(saturation) + 0.01)
+
+        return np.array([
+            brightness_gradient_smoothness,
+            high_freq_energy,
+            saturation_uniformity
+        ])
+
+    def extract_trash_features(self, image):
+        """
+        Extract trash-specific features for heterogeneous material detection.
+
+        Optimized: Returns only the most discriminative feature.
+
+        Returns:
+            1 feature: texture_chaos
+        """
+        if isinstance(image, Image.Image):
+            image = np.array(image)
+
+        if len(image.shape) == 2:
+            image = np.stack([image] * 3, axis=-1)
+
+        gray = skcolor.rgb2gray(image)
+        gray_uint8 = (gray * 255).astype(np.uint8) if gray.max() <= 1.0 else gray.astype(np.uint8)
+
+        # Texture chaos - variance of LBP across quadrants (trash = mixed textures)
+        h, w = gray_uint8.shape
+        quadrants = [
+            gray_uint8[0:h//2, 0:w//2],
+            gray_uint8[0:h//2, w//2:],
+            gray_uint8[h//2:, 0:w//2],
+            gray_uint8[h//2:, w//2:]
+        ]
+
+        lbp_variances = []
+        for quad in quadrants:
+            if quad.size > 0:
+                lbp = local_binary_pattern(quad, P=8, R=1, method='uniform')
+                lbp_variances.append(np.var(lbp))
+
+        texture_chaos = np.var(lbp_variances) if len(lbp_variances) > 0 else 0.0
+
+        return np.array([texture_chaos])
+
+    def extract_metal_features(self, image):
+        """
+        Extract additional metal-specific features beyond specular.
+
+        Optimized: Returns only the most discriminative feature.
+
+        Returns:
+            1 feature: reflection_directionality
+        """
+        if isinstance(image, Image.Image):
+            image = np.array(image)
+
+        if len(image.shape) == 2:
+            image = np.stack([image] * 3, axis=-1)
+
+        gray = skcolor.rgb2gray(image)
+        gray_uint8 = (gray * 255).astype(np.uint8) if gray.max() <= 1.0 else gray.astype(np.uint8)
+
+        # Reflection directionality - metallic reflections have dominant orientations
+        grad_x = cv2.Sobel(gray_uint8, cv2.CV_64F, 1, 0, ksize=3)
+        grad_y = cv2.Sobel(gray_uint8, cv2.CV_64F, 0, 1, ksize=3)
+        angles = np.arctan2(grad_y, grad_x)
+
+        # Metallic reflections have dominant orientations
+        hist, _ = np.histogram(angles, bins=36, range=(-np.pi, np.pi))
+        reflection_directionality = np.max(hist) / (np.sum(hist) + 1e-6)
+
+        return np.array([reflection_directionality])
 
     def extract_spatial_asymmetry_features(self, image):
         """
@@ -397,50 +465,43 @@ class BayesFeatureExtractor:
         """
         Extract all features from an image.
 
+        Optimized feature set with reduced redundancy:
+        - Color: 6
+        - Texture (LBP + Haralick from extract_texture_features): 19
+        - Shape: 4
+        - Specular (optimized): 2
+        - Metal (optimized): 1
+        - Glass (optimized): 3
+        - Trash (optimized): 1
+        - Single-scale LBP radius=2: 16
+        Total: 52 features (before correlation removal)
+
         Args:
             image: PIL Image or numpy array
-            use_single_scale_lbp: If True, use only radius=2 LBP (53 features total).
-                                 If False, use multi-scale LBP (85 features).
-                                 If None, use config setting.
+            use_single_scale_lbp: Ignored - always uses single-scale LBP
 
         Returns:
-            Feature vector (53 or 85 features depending on settings)
+            Feature vector (52 features)
         """
-        # Check config if not specified
-        if use_single_scale_lbp is None:
-            use_single_scale_lbp = self.config.get('bayes', {}).get('use_single_scale_lbp', False)
+        color_feat = self.extract_color_features(image)           # 6
+        texture_feat = self.extract_texture_features(image)       # 19
+        shape_feat = self.extract_shape_features(image)           # 4
+        specular_feat = self.extract_specular_features(image)     # 2 (optimized)
+        metal_feat = self.extract_metal_features(image)           # 1 (optimized)
+        glass_feat = self.extract_glass_features(image)           # 3 (optimized)
+        trash_feat = self.extract_trash_features(image)           # 1 (optimized)
+        lbp_feat = self.extract_single_scale_lbp(image, radius=2) # 16
 
-        color_feat = self.extract_color_features(image)
-        texture_feat = self.extract_texture_features(image)
-        shape_feat = self.extract_shape_features(image)
-        specular_feat = self.extract_specular_features(image)
-        transparency_feat = self.extract_transparency_features(image)
-        spatial_feat = self.extract_spatial_asymmetry_features(image)
-
-        if use_single_scale_lbp:
-            # Use only radius=2 LBP (16 features instead of 48)
-            lbp_feat = self.extract_single_scale_lbp(image, radius=2)
-            return np.concatenate([
-                color_feat,        # 6
-                texture_feat,      # 19
-                shape_feat,        # 4
-                specular_feat,     # 6 (updated with 3 new metal features)
-                transparency_feat, # 3
-                spatial_feat,      # 2
-                lbp_feat          # 16
-            ])  # Total: 56 features
-        else:
-            # Use multi-scale LBP (48 features)
-            multiscale_lbp_feat = self.extract_multiscale_lbp(image)
-            return np.concatenate([
-                color_feat,           # 6
-                texture_feat,         # 19
-                shape_feat,           # 4
-                specular_feat,        # 6 (updated with 3 new metal features)
-                transparency_feat,    # 3
-                spatial_feat,         # 2
-                multiscale_lbp_feat   # 48
-            ])  # Total: 88 features
+        return np.concatenate([
+            color_feat,     # 6
+            texture_feat,   # 19
+            shape_feat,     # 4
+            specular_feat,  # 2
+            metal_feat,     # 1
+            glass_feat,     # 3
+            trash_feat,     # 1
+            lbp_feat        # 16
+        ])  # Total: 52 features
 
     def augment_image(self, image):
         """
@@ -544,10 +605,17 @@ class BayesClassifier:
         # Get optimization settings from config
         bayes_config = config.get('bayes', {})
         self.use_multinomial = bayes_config.get('use_multinomial', False)
+        self.use_ovr = bayes_config.get('use_ovr', False)
         self.apply_pca = bayes_config.get('apply_pca', False)
-        self.pca_components = bayes_config.get('pca_components', 20)
+        self.pca_components = bayes_config.get('pca_components', 15)
         self.apply_box_cox = bayes_config.get('apply_box_cox', False)
         self.use_trash_rules = bayes_config.get('use_trash_rules', False)
+        self.remove_correlated = bayes_config.get('remove_correlated', False)
+        self.correlation_threshold = bayes_config.get('correlation_threshold', 0.85)
+
+        # Track which features to keep after correlation removal
+        self.feature_mask = None
+        self.kept_feature_indices = None
 
         # Initialize appropriate scaler
         if self.use_multinomial:
@@ -566,17 +634,23 @@ class BayesClassifier:
         if self.apply_box_cox:
             self.box_cox_transformer = PowerTransformer(method='yeo-johnson', standardize=False)
 
-        # Initialize model with balanced priors if requested
+        # Initialize base model with balanced priors if requested
         if self.use_multinomial:
             # MultinomialNB doesn't support priors parameter the same way
-            self.model = MultinomialNB()
+            base_model = MultinomialNB()
         else:
             if use_balanced_priors:
                 n_classes = config['data']['num_classes']
                 priors = np.ones(n_classes) / n_classes
-                self.model = GaussianNB(priors=priors)
+                base_model = GaussianNB(priors=priors)
             else:
-                self.model = GaussianNB()
+                base_model = GaussianNB()
+
+        # Wrap in One-vs-Rest if requested
+        if self.use_ovr:
+            self.model = OneVsRestClassifier(base_model)
+        else:
+            self.model = base_model
 
         self.class_names = config['data']['classes']
         self.is_fitted = False
@@ -620,13 +694,78 @@ class BayesClassifier:
         # Apply transformations
         X_transformed = X_train
 
-        # 1. Box-Cox transformation (if enabled)
+        # 1. Correlation-based feature removal (if enabled)
+        if self.remove_correlated:
+            if verbose:
+                print(f"Removing correlated features (threshold={self.correlation_threshold})...")
+
+            # First, check for and remove zero-variance features
+            feature_variances = np.var(X_transformed, axis=0)
+            zero_var_mask = feature_variances < 1e-10
+
+            if np.any(zero_var_mask):
+                zero_var_indices = np.where(zero_var_mask)[0]
+                if verbose:
+                    print(f"  Warning: Found {len(zero_var_indices)} zero-variance features")
+                    print(f"  Removing zero-variance features before correlation analysis...")
+
+                # Remove zero-variance features
+                non_zero_var_mask = ~zero_var_mask
+                X_transformed = X_transformed[:, non_zero_var_mask]
+
+                # Initialize feature mask to track all removals
+                self.feature_mask = non_zero_var_mask.copy()
+            else:
+                # No zero-variance features, initialize full mask
+                self.feature_mask = np.ones(X_transformed.shape[1], dtype=bool)
+
+            # Analyze correlations on remaining features
+            from src.models.feature_optimizer import analyze_feature_correlations, get_redundant_features
+            corr_analysis = analyze_feature_correlations(
+                X_transformed,
+                threshold=self.correlation_threshold
+            )
+
+            if corr_analysis['num_redundant'] > 0:
+                redundant_indices = get_redundant_features(corr_analysis, self.correlation_threshold)
+
+                # Create a temporary mask for the current features
+                temp_mask = np.ones(X_transformed.shape[1], dtype=bool)
+                temp_mask[redundant_indices] = False
+
+                # Remove correlated features
+                X_transformed = X_transformed[:, temp_mask]
+
+                # Update the global feature mask
+                # Map temp_mask back to original feature space
+                current_kept_indices = np.where(self.feature_mask)[0]
+                features_to_remove = current_kept_indices[redundant_indices]
+                self.feature_mask[features_to_remove] = False
+
+                self.kept_feature_indices = np.where(self.feature_mask)[0]
+
+                if verbose:
+                    print(f"  Removed {len(redundant_indices)} correlated features")
+                    total_removed = X_train.shape[1] - X_transformed.shape[1]
+                    print(f"  Features: {X_train.shape[1]} → {X_transformed.shape[1]} (removed {total_removed} total)")
+            else:
+                if verbose:
+                    if np.any(zero_var_mask):
+                        total_removed = len(zero_var_indices)
+                        print(f"  No highly correlated features found")
+                        print(f"  Features: {X_train.shape[1]} → {X_transformed.shape[1]} (removed {total_removed} zero-variance)")
+                    else:
+                        print("  No highly correlated features found")
+
+                self.kept_feature_indices = np.where(self.feature_mask)[0]
+
+        # 2. Box-Cox transformation (if enabled)
         if self.apply_box_cox:
             if verbose:
                 print("Applying Box-Cox transformation...")
             X_transformed = self.box_cox_transformer.fit_transform(X_transformed)
 
-        # 2. Standardize/normalize features
+        # 3. Standardize/normalize features
         if verbose:
             scaler_name = "MinMax scaling" if self.use_multinomial else "Standardizing"
             print(f"{scaler_name} features...")
@@ -643,8 +782,12 @@ class BayesClassifier:
 
         if verbose:
             model_name = "MultinomialNB" if self.use_multinomial else "GaussianNB"
+            if self.use_ovr:
+                model_name = f"OVR-{model_name}"
             print(f"Training {model_name} classifier...")
             print(f"  Final feature shape: {X_transformed.shape}")
+            if self.use_ovr:
+                print(f"  Using One-vs-Rest ensemble ({len(self.class_names)} binary classifiers)")
 
         # Train Naive Bayes
         self.model.fit(X_transformed, y_train)
@@ -664,11 +807,18 @@ class BayesClassifier:
         X_transformed = X
 
         # Apply transformations in same order as training
+        # 1. Correlation removal
+        if self.feature_mask is not None:
+            X_transformed = X_transformed[:, self.feature_mask]
+
+        # 2. Box-Cox
         if self.apply_box_cox and self.box_cox_transformer is not None:
             X_transformed = self.box_cox_transformer.transform(X_transformed)
 
+        # 3. Scaling
         X_transformed = self.scaler.transform(X_transformed)
 
+        # 4. PCA
         if self.apply_pca and self.pca is not None:
             X_transformed = self.pca.transform(X_transformed)
 
@@ -883,6 +1033,10 @@ class BayesClassifier:
         model_data = {
             'model': self.model,
             'scaler': self.scaler,
+            'pca': self.pca,
+            'box_cox_transformer': self.box_cox_transformer,
+            'feature_mask': self.feature_mask,
+            'kept_feature_indices': self.kept_feature_indices,
             'config': self.config,
             'is_fitted': self.is_fitted
         }
@@ -909,6 +1063,10 @@ class BayesClassifier:
         classifier = cls(model_data['config'])
         classifier.model = model_data['model']
         classifier.scaler = model_data['scaler']
+        classifier.pca = model_data.get('pca', None)  # Backwards compatible
+        classifier.box_cox_transformer = model_data.get('box_cox_transformer', None)  # Backwards compatible
+        classifier.feature_mask = model_data.get('feature_mask', None)  # Backwards compatible
+        classifier.kept_feature_indices = model_data.get('kept_feature_indices', None)  # Backwards compatible
         classifier.is_fitted = model_data['is_fitted']
 
         print(f"Model loaded from {filepath}")
