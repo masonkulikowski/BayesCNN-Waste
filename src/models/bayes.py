@@ -20,10 +20,15 @@ class BayesFeatureExtractor:
     """
     Extract low-dimensional, interpretable features for Naive Bayes classification.
 
-    Features extracted (~26-30 total):
-    - Color: Mean HSV (3) + Std HSV (3) = 6 features
-    - Texture: LBP histogram (16) + Haralick (3) = 19 features
-    - Shape: Aspect ratio (1) + Hu moments (3) = 4 features
+    Features extracted (52 total):
+    - Color: Mean HSV (3) + Std HSV (3) = 6
+    - Texture: LBP histogram (16) + Haralick (3) = 19
+    - Shape: Aspect ratio (1) + Hu moments (3) = 4
+    - Specular: 2
+    - Metal: 1
+    - Glass: 3
+    - Trash: 1
+    - LBP radius=2: 16
     """
 
     def __init__(self, config):
@@ -33,6 +38,29 @@ class BayesFeatureExtractor:
         self.lbp_radius = config['bayes'].get('lbp_radius', 1)
         self.lbp_points = config['bayes'].get('lbp_points', 8)
 
+    @staticmethod
+    def _to_numpy(image):
+        return np.array(image) if isinstance(image, Image.Image) else image
+
+    def _to_rgb_image(self, image):
+        """Ensure image is RGB ndarray."""
+        image_np = self._to_numpy(image)
+        if image_np.ndim == 2:
+            image_np = np.stack([image_np] * 3, axis=-1)
+        return image_np
+
+    def _to_gray(self, image):
+        """Return grayscale float image in [0, 1] or original scale."""
+        image_np = self._to_numpy(image)
+        if image_np.ndim == 3:
+            return skcolor.rgb2gray(image_np)
+        return image_np.astype(float)
+
+    def _to_gray_uint8(self, image):
+        """Return grayscale uint8 image."""
+        gray = self._to_gray(image)
+        return (gray * 255).astype(np.uint8) if gray.max() <= 1.0 else gray.astype(np.uint8)
+
     def extract_color_features(self, image):
         """
         Extract color features from HSV color space.
@@ -40,14 +68,8 @@ class BayesFeatureExtractor:
         Returns:
             6 features: [mean_h, mean_s, mean_v, std_h, std_s, std_v]
         """
-        if isinstance(image, Image.Image):
-            image = np.array(image)
-
-        # Convert to HSV
-        if len(image.shape) == 2:  # Grayscale
-            image = np.stack([image] * 3, axis=-1)
-
-        hsv = cv2.cvtColor(image, cv2.COLOR_RGB2HSV)
+        image_rgb = self._to_rgb_image(image)
+        hsv = cv2.cvtColor(image_rgb, cv2.COLOR_RGB2HSV)
 
         # Mean and std for each channel
         mean_hsv = np.mean(hsv, axis=(0, 1))
@@ -62,17 +84,8 @@ class BayesFeatureExtractor:
         Returns:
             19 features: LBP histogram (16) + Haralick contrast/entropy/homogeneity (3)
         """
-        if isinstance(image, Image.Image):
-            image = np.array(image)
-
-        # Convert to grayscale
-        if len(image.shape) == 3:
-            gray = skcolor.rgb2gray(image)
-        else:
-            gray = image
-
-        # Convert to uint8 for processing
-        gray_uint8 = (gray * 255).astype(np.uint8) if gray.max() <= 1.0 else gray.astype(np.uint8)
+        gray = self._to_gray(image)
+        gray_uint8 = self._to_gray_uint8(image)
 
         # 1. Local Binary Pattern (LBP)
         lbp = local_binary_pattern(
@@ -117,22 +130,15 @@ class BayesFeatureExtractor:
         Returns:
             4 features: aspect_ratio (1) + first 3 Hu moments (3)
         """
-        if isinstance(image, Image.Image):
-            image = np.array(image)
+        image_np = self._to_numpy(image)
 
         # 1. Aspect ratio
-        height, width = image.shape[:2]
+        height, width = image_np.shape[:2]
         aspect_ratio = width / height if height > 0 else 1.0
 
         # 2. Hu moments (use first 3 for simplicity)
         # Convert to grayscale for moment calculation
-        if len(image.shape) == 3:
-            gray = skcolor.rgb2gray(image)
-        else:
-            gray = image
-
-        # Convert to uint8
-        gray_uint8 = (gray * 255).astype(np.uint8) if gray.max() <= 1.0 else gray.astype(np.uint8)
+        gray_uint8 = self._to_gray_uint8(image_np)
 
         # Calculate Hu moments
         hu = moments_hu(gray_uint8)
@@ -151,30 +157,15 @@ class BayesFeatureExtractor:
         Returns:
             2 features: highlight_contrast, gradient_concentration
         """
-        if isinstance(image, Image.Image):
-            image = np.array(image)
-
-        # Convert to HSV to get Value channel
-        if len(image.shape) == 2:
-            image = np.stack([image] * 3, axis=-1)
-
-        hsv = cv2.cvtColor(image, cv2.COLOR_RGB2HSV)
+        image_rgb = self._to_rgb_image(image)
+        hsv = cv2.cvtColor(image_rgb, cv2.COLOR_RGB2HSV)
         value_channel = hsv[:, :, 2].astype(float) / 255.0  # Normalize to [0, 1]
-        gray = skcolor.rgb2gray(image)
+        gray = self._to_gray(image_rgb)
 
         # 1. Bright pixel ratio (pixels with V > 0.85)
         bright_mask = value_channel > 0.85
-        bright_pixel_ratio = np.mean(bright_mask)
 
-        # 2. Highlight sharpness (Laplacian variance in bright regions)
-        laplacian = cv2.Laplacian(gray, cv2.CV_64F)
-
-        if np.any(bright_mask):
-            highlight_sharpness = np.var(laplacian[bright_mask])
-        else:
-            highlight_sharpness = 0.0
-
-        # 3. Highlight contrast (mean gradient magnitude in bright regions)
+        # Highlight contrast (mean gradient magnitude in bright regions)
         grad_x = cv2.Sobel(gray, cv2.CV_64F, 1, 0, ksize=3)
         grad_y = cv2.Sobel(gray, cv2.CV_64F, 0, 1, ksize=3)
         grad_magnitude = np.sqrt(grad_x**2 + grad_y**2)
@@ -184,32 +175,7 @@ class BayesFeatureExtractor:
         else:
             highlight_contrast = 0.0
 
-        # 4. Edge sharpness (Laplacian variance across entire image)
-        # Metals have sharp, crisp edges → high variance
-        gray_uint8 = (gray * 255).astype(np.uint8) if gray.max() <= 1.0 else gray.astype(np.uint8)
-        laplacian_full = cv2.Laplacian(gray_uint8, cv2.CV_64F)
-        edge_sharpness = np.var(laplacian_full)
-
-        # 5. Specular highlight distribution
-        # Count separate bright regions and their average size
-        bright_mask_uint8 = (bright_mask * 255).astype(np.uint8)
-        num_labels, labels, stats, _ = cv2.connectedComponentsWithStats(bright_mask_uint8, connectivity=8)
-
-        # Exclude background (label 0)
-        if num_labels > 1:
-            # Number of separate bright regions
-            num_bright_regions = num_labels - 1
-            # Average size of bright regions
-            region_sizes = stats[1:, cv2.CC_STAT_AREA]  # Exclude background
-            avg_region_size = np.mean(region_sizes) if len(region_sizes) > 0 else 0.0
-            # Metals have few, concentrated highlights (low count, high size)
-            highlight_distribution = avg_region_size / (num_bright_regions + 1)
-        else:
-            highlight_distribution = 0.0
-
-        # 6. Gradient concentration
-        # Ratio of top 10% gradients to mean gradient
-        # Metals have concentrated high-gradient areas
+        # Gradient concentration: ratio of top 10% gradients to mean gradient
         grad_flat = grad_magnitude.flatten()
         if len(grad_flat) > 0:
             top_10_percent_threshold = np.percentile(grad_flat, 90)
@@ -238,15 +204,10 @@ class BayesFeatureExtractor:
         Returns:
             3 features: brightness_gradient_smoothness, high_freq_energy, saturation_uniformity
         """
-        if isinstance(image, Image.Image):
-            image = np.array(image)
-
-        if len(image.shape) == 2:
-            image = np.stack([image] * 3, axis=-1)
-
-        gray = skcolor.rgb2gray(image)
-        gray_uint8 = (gray * 255).astype(np.uint8) if gray.max() <= 1.0 else gray.astype(np.uint8)
-        hsv = cv2.cvtColor(image, cv2.COLOR_RGB2HSV)
+        image_rgb = self._to_rgb_image(image)
+        gray = self._to_gray(image_rgb)
+        gray_uint8 = self._to_gray_uint8(image_rgb)
+        hsv = cv2.cvtColor(image_rgb, cv2.COLOR_RGB2HSV)
 
         # 1. Brightness gradient smoothness - glass shows smooth center-to-edge transitions
         h, w = gray_uint8.shape
@@ -294,14 +255,7 @@ class BayesFeatureExtractor:
         Returns:
             1 feature: texture_chaos
         """
-        if isinstance(image, Image.Image):
-            image = np.array(image)
-
-        if len(image.shape) == 2:
-            image = np.stack([image] * 3, axis=-1)
-
-        gray = skcolor.rgb2gray(image)
-        gray_uint8 = (gray * 255).astype(np.uint8) if gray.max() <= 1.0 else gray.astype(np.uint8)
+        gray_uint8 = self._to_gray_uint8(image)
 
         # Texture chaos - variance of LBP across quadrants (trash = mixed textures)
         h, w = gray_uint8.shape
@@ -331,14 +285,7 @@ class BayesFeatureExtractor:
         Returns:
             1 feature: reflection_directionality
         """
-        if isinstance(image, Image.Image):
-            image = np.array(image)
-
-        if len(image.shape) == 2:
-            image = np.stack([image] * 3, axis=-1)
-
-        gray = skcolor.rgb2gray(image)
-        gray_uint8 = (gray * 255).astype(np.uint8) if gray.max() <= 1.0 else gray.astype(np.uint8)
+        gray_uint8 = self._to_gray_uint8(image)
 
         # Reflection directionality - metallic reflections have dominant orientations
         grad_x = cv2.Sobel(gray_uint8, cv2.CV_64F, 1, 0, ksize=3)
@@ -358,13 +305,8 @@ class BayesFeatureExtractor:
         Returns:
             2 features: lr_brightness_var_diff, tb_brightness_var_diff
         """
-        if isinstance(image, Image.Image):
-            image = np.array(image)
-
-        if len(image.shape) == 2:
-            image = np.stack([image] * 3, axis=-1)
-
-        hsv = cv2.cvtColor(image, cv2.COLOR_RGB2HSV)
+        image_rgb = self._to_rgb_image(image)
+        hsv = cv2.cvtColor(image_rgb, cv2.COLOR_RGB2HSV)
         value_channel = hsv[:, :, 2].astype(float)
 
         h, w = value_channel.shape
@@ -381,46 +323,6 @@ class BayesFeatureExtractor:
 
         return np.array([lr_brightness_var_diff, tb_brightness_var_diff])
 
-    def extract_multiscale_lbp(self, image):
-        """
-        Extract multi-scale LBP features at radii 1, 2, 3.
-
-        Returns:
-            48 features: 16 bins × 3 radii
-        """
-        if isinstance(image, Image.Image):
-            image = np.array(image)
-
-        # Convert to grayscale
-        if len(image.shape) == 3:
-            gray = skcolor.rgb2gray(image)
-        else:
-            gray = image
-
-        gray_uint8 = (gray * 255).astype(np.uint8) if gray.max() <= 1.0 else gray.astype(np.uint8)
-
-        multiscale_features = []
-
-        for radius in [1, 2, 3]:
-            points = 8 * radius  # Scale points with radius
-            lbp = local_binary_pattern(
-                gray_uint8,
-                P=points,
-                R=radius,
-                method='uniform'
-            )
-
-            # Histogram with 16 bins
-            hist, _ = np.histogram(
-                lbp.ravel(),
-                bins=self.lbp_bins,
-                range=(0, self.lbp_bins),
-                density=True
-            )
-            multiscale_features.append(hist)
-
-        return np.concatenate(multiscale_features)
-
     def extract_single_scale_lbp(self, image, radius=2):
         """
         Extract single-scale LBP features (optimized version).
@@ -432,16 +334,7 @@ class BayesFeatureExtractor:
         Returns:
             16 features: LBP histogram at specified radius
         """
-        if isinstance(image, Image.Image):
-            image = np.array(image)
-
-        # Convert to grayscale
-        if len(image.shape) == 3:
-            gray = skcolor.rgb2gray(image)
-        else:
-            gray = image
-
-        gray_uint8 = (gray * 255).astype(np.uint8) if gray.max() <= 1.0 else gray.astype(np.uint8)
+        gray_uint8 = self._to_gray_uint8(image)
 
         points = 8 * radius
         lbp = local_binary_pattern(
@@ -461,7 +354,7 @@ class BayesFeatureExtractor:
 
         return hist
 
-    def extract_features(self, image, use_single_scale_lbp=None):
+    def extract_features(self, image):
         """
         Extract all features from an image.
 
@@ -478,7 +371,6 @@ class BayesFeatureExtractor:
 
         Args:
             image: PIL Image or numpy array
-            use_single_scale_lbp: Ignored - always uses single-scale LBP
 
         Returns:
             Feature vector (52 features)
@@ -609,7 +501,6 @@ class BayesClassifier:
         self.apply_pca = bayes_config.get('apply_pca', False)
         self.pca_components = bayes_config.get('pca_components', 15)
         self.apply_box_cox = bayes_config.get('apply_box_cox', False)
-        self.use_trash_rules = bayes_config.get('use_trash_rules', False)
         self.remove_correlated = bayes_config.get('remove_correlated', False)
         self.correlation_threshold = bayes_config.get('correlation_threshold', 0.85)
 
@@ -747,13 +638,13 @@ class BayesClassifier:
                 if verbose:
                     print(f"  Removed {len(redundant_indices)} correlated features")
                     total_removed = X_train.shape[1] - X_transformed.shape[1]
-                    print(f"  Features: {X_train.shape[1]} → {X_transformed.shape[1]} (removed {total_removed} total)")
+                    print(f"  Features: {X_train.shape[1]} -> {X_transformed.shape[1]} (removed {total_removed} total)")
             else:
                 if verbose:
                     if np.any(zero_var_mask):
                         total_removed = len(zero_var_indices)
                         print(f"  No highly correlated features found")
-                        print(f"  Features: {X_train.shape[1]} → {X_transformed.shape[1]} (removed {total_removed} zero-variance)")
+                        print(f"  Features: {X_train.shape[1]} -> {X_transformed.shape[1]} (removed {total_removed} zero-variance)")
                     else:
                         print("  No highly correlated features found")
 
@@ -859,7 +750,7 @@ class BayesClassifier:
             for i in range(len(y_true)):
                 true_class = self.class_names[y_true[i]]
                 pred_class = self.class_names[y_pred[i]]
-                is_correct = "✓" if y_true[i] == y_pred[i] else "✗"
+                is_correct = "ok" if y_true[i] == y_pred[i] else "fail"
 
                 # Format probabilities
                 proba_str = ""
