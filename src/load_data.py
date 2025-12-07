@@ -12,12 +12,13 @@ from src.config import load_config
 config = load_config()
 
 class TrashNetDataset(Dataset):
-    def __init__(self, dataset):
+    def __init__(self, dataset, transform=None):
         self.dataset = dataset
+        self.transform = transform
 
     def __len__(self):
         return len(self.dataset)
-    
+
     def __getitem__(self, index):
         item = self.dataset[index]
         image = item['image']
@@ -25,6 +26,9 @@ class TrashNetDataset(Dataset):
 
         if image.mode != 'RGB':
             image = image.convert('RGB')
+
+        if self.transform:
+            image = self.transform(image)
 
         return image, label
 
