@@ -12,21 +12,55 @@ from src.config import load_config
 config = load_config()
 
 class TrashNetDataset(Dataset):
-    def __init__(self, dataset, transform=None):
+    """
+    Optimized PyTorch Dataset for TrashNet data with parallel loading support.
+
+    Features:
+    - Efficient image loading and caching
+    - RGB conversion
+    - Transform pipeline
+    - Thread-safe for multi-worker data loading
+    """
+
+    def __init__(self, dataset, transform=None, cache_images=False):
+        """
+        Args:
+            dataset: HuggingFace dataset
+            transform: Torchvision transforms
+            cache_images: If True, cache preprocessed images in memory (uses more RAM but faster)
+        """
         self.dataset = dataset
         self.transform = transform
+        self.cache_images = cache_images
+        self._cache = {}  # Image cache for faster loading
+
+        if cache_images:
+            print(f"[Dataset] Caching enabled - preprocessing {len(dataset)} images...")
+            # Pre-cache all images (good for small datasets)
+            for idx in range(len(dataset)):
+                item = self.dataset[idx]
+                image = item['image']
+                if image.mode != 'RGB':
+                    image = image.convert('RGB')
+                self._cache[idx] = image
+            print(f"[Dataset] Cached {len(self._cache)} images in memory")
 
     def __len__(self):
         return len(self.dataset)
 
     def __getitem__(self, index):
-        item = self.dataset[index]
-        image = item['image']
-        label = item['label']
+        # Use cached image if available
+        if index in self._cache:
+            image = self._cache[index]
+        else:
+            item = self.dataset[index]
+            image = item['image']
+            if image.mode != 'RGB':
+                image = image.convert('RGB')
 
-        if image.mode != 'RGB':
-            image = image.convert('RGB')
+        label = self.dataset[index]['label']
 
+        # Apply transforms
         if self.transform:
             image = self.transform(image)
 
