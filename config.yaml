@@ -34,19 +34,8 @@ bayes:
 
   use_single_scale_lbp: true
   pca_components: 15
-  apply_box_cox: false
   remove_correlated: true
   correlation_threshold: 0.85
-
-  use_multinomial: false
-  use_ovr: false
-  use_trash_rules: false
-
-cnn:
-  architecture: "resnet18"
-  pretrained: true
-  freeze_backbone: false
-  dropout: 0.5
 
 custom_cnn:
   conv_channels: [32, 64, 128, 256]
