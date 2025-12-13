@@ -18,7 +18,21 @@ Thankfully, the dataset has been posted on [HuggingFace](https://huggingface.co/
 
 ### Convolutional Neural Network
 
+I implemented a custom CNN architecture rather than using a pretrained model like ResNet18. The network consists of 4 convolutional blocks with progressively increasing channel sizes (32 → 64 → 128 → 256). Each block includes batch normalization, ReLU activation, and max pooling to extract hierarchical features. The model uses global average pooling before the fully connected layers to reduce overfitting, followed by dropout for regularization. I trained it using Adam optimizer with a learning rate of 0.001 and implemented early stopping with a patience of 10 epochs to prevent overfitting.
+
+The model achieved around 65.83% validation accuracy after 42 epochs of training on the CPU. While not state-of-the-art, it demonstrates the effectiveness of deep learning for waste classification compared to traditional methods.
+
 ### Bayes Classifier
+
+For comparison, I implemented a Multi-Class Gaussian Naive Bayes classifier with hand-crafted feature extraction. Rather than learning features automatically like the CNN, this approach uses traditional computer vision techniques to extract meaningful features from the images.
+
+The feature extraction pipeline includes:
+- **Local Binary Patterns (LBP)** for texture analysis using single-scale LBP with radius 1 and 8 points
+- **Color features** from HSV color space histograms
+- **Shape features** including aspect ratio and Hu moments
+- **Domain-specific features** for detecting specular reflections, metallic surfaces, and glass-like properties
+
+To manage the high dimensionality and remove redundant information, I applied PCA to reduce the features to 15 principal components and removed highly correlated features (threshold 0.85). The classifier uses balanced class priors to account for the class imbalance in the dataset.
 
 # Running the Models
 
