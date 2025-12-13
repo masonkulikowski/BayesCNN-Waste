@@ -90,7 +90,6 @@ def compute_dataset_stats(dataset, config, num_samples=None):
 
     print(f"Processing {num_samples} images...")
     for i in range(num_samples):
-        # HuggingFace datasets return dictionaries
         item = dataset[i]
         image = item['image'] if isinstance(item, dict) else item[0]
 

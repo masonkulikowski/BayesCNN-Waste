@@ -30,20 +30,17 @@ bayes:
   lbp_radius: 1
   lbp_points: 8
 
-  use_balanced_priors: true    # Use balanced class priors (1/6 for each class)
+  use_balanced_priors: true
 
-  # Feature optimization options
-  use_single_scale_lbp: true   # Always use single-scale LBP (52 features base)
-  apply_pca: true              # Apply PCA dimensionality reduction
-  pca_components: 15           # Number of PCA components (optimized)
-  apply_box_cox: false         # DISABLED: Conflicts with some negative features
-  remove_correlated: true      # Remove highly correlated features (0.85 threshold)
-  correlation_threshold: 0.85  # Correlation threshold for removal
+  use_single_scale_lbp: true
+  pca_components: 15
+  apply_box_cox: false
+  remove_correlated: true
+  correlation_threshold: 0.85
 
-  # Model options
-  use_multinomial: false       # Use MultinomialNB instead of GaussianNB
-  use_ovr: false               # Disabled: Use standard multi-class GaussianNB
-  use_trash_rules: false       # Use rule-based fallback for trash class
+  use_multinomial: false
+  use_ovr: false
+  use_trash_rules: false
 
 cnn:
   architecture: "resnet18"

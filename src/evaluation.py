@@ -1,9 +1,3 @@
-"""
-Evaluation utilities for CNN models.
-
-This module contains functions for model evaluation and hyperparameter tuning.
-"""
-
 import torch
 from tqdm.auto import tqdm
 from pathlib import Path
@@ -76,7 +70,6 @@ def hyperparameter_search(model_fn, param_grid, train_loader, val_loader, config
 
     results = []
 
-    # Generate all combinations
     param_names = list(param_grid.keys())
     param_values = list(param_grid.values())
 
@@ -100,13 +93,11 @@ def hyperparameter_search(model_fn, param_grid, train_loader, val_loader, config
         print(f"Parameters: {params}")
         print(f"{'='*80}\n")
 
-        # Update config
         config_copy = config.copy()
         for key, value in params.items():
             if key in config_copy['training']:
                 config_copy['training'][key] = value
 
-        # Create dataloaders with new batch size if needed
         if 'batch_size' in params:
             train_hf, val_hf, test_hf = load_data(split_data=True)
 
@@ -123,14 +114,11 @@ def hyperparameter_search(model_fn, param_grid, train_loader, val_loader, config
         else:
             train_loader_temp, val_loader_temp = train_loader, val_loader
 
-        # Create model
         model = model_fn()
 
-        # Create model name
         param_str = '_'.join([f"{k}{v}" for k, v in params.items()])
         model_name = f"{model_base_name}_{param_str}"
 
-        # Train
         try:
             history = train_model(
                 model,
@@ -142,7 +130,6 @@ def hyperparameter_search(model_fn, param_grid, train_loader, val_loader, config
                 save_best=True
             )
 
-            # Save results
             result = {
                 'params': params,
                 'best_val_acc': max(history['val_acc']),
@@ -159,12 +146,10 @@ def hyperparameter_search(model_fn, param_grid, train_loader, val_loader, config
             print(f"✗ Error training with params {params}: {e}")
             continue
 
-    # Print summary
     print(f"\n{'='*80}")
     print(f"Hyperparameter Search Complete")
     print(f"{'='*80}\n")
 
-    # Sort by best validation accuracy
     results.sort(key=lambda x: x['best_val_acc'], reverse=True)
 
     print("\nTop 5 Configurations:")
@@ -174,7 +159,6 @@ def hyperparameter_search(model_fn, param_grid, train_loader, val_loader, config
         print(f"   Best Val Acc: {result['best_val_acc']:.2f}% | Val Loss: {result['best_val_loss']:.4f} | Epochs: {result['epochs_trained']}")
         print()
 
-    # Save results
     results_path = Path(config['paths']['results_dir']) / f"{model_base_name}_tuning_results.json"
     with open(results_path, 'w') as f:
         json.dump(results, f, indent=2)
@@ -195,10 +179,8 @@ def load_model_checkpoint(model, checkpoint_path, device='cpu'):
     Returns:
         model: Loaded model
     """
-    # Load to CPU first to avoid DirectML device issues
     checkpoint = torch.load(checkpoint_path, map_location='cpu')
     model.load_state_dict(checkpoint['model_state_dict'])
-    # Then move to target device
     model.to(device)
 
     print(f"Loaded checkpoint from {checkpoint_path}")

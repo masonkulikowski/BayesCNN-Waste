@@ -1,10 +1,4 @@
-"""
-Feature optimization utilities for Bayes classifier.
-Includes correlation analysis, PCA, and feature transformations.
-"""
-
 import numpy as np
-import pandas as pd
 from sklearn.decomposition import PCA
 from sklearn.preprocessing import PowerTransformer
 from scipy import stats
@@ -27,10 +21,8 @@ def analyze_feature_correlations(X, feature_names=None, threshold=0.9):
     if feature_names is None:
         feature_names = [f"Feature_{i}" for i in range(X.shape[1])]
 
-    # Compute correlation matrix
     corr_matrix = np.corrcoef(X.T)
 
-    # Find highly correlated pairs (above threshold)
     redundant_pairs = []
     for i in range(len(feature_names)):
         for j in range(i + 1, len(feature_names)):
@@ -68,7 +60,6 @@ def get_redundant_features(corr_analysis, threshold=0.9):
 
     for pair in corr_analysis['redundant_pairs']:
         if abs(pair['correlation']) > threshold:
-            # Keep feature1, remove feature2
             to_remove.add(pair['index2'])
 
     return sorted(list(to_remove))
@@ -111,7 +102,6 @@ def test_gaussianity(X, feature_names=None, alpha=0.05):
     results = []
 
     for i, name in enumerate(feature_names):
-        # Shapiro-Wilk test (null hypothesis: data is normally distributed)
         stat, p_value = stats.shapiro(X[:, i])
         is_gaussian = p_value > alpha
 
@@ -149,10 +139,8 @@ def apply_box_cox_transform(X, feature_indices=None):
     if feature_indices is None:
         feature_indices = range(X.shape[1])
 
-    # PowerTransformer with Box-Cox (requires positive values)
     transformer = PowerTransformer(method='yeo-johnson', standardize=True)
 
-    # Transform only specified features
     X_transformed[:, feature_indices] = transformer.fit_transform(X[:, feature_indices])
 
     return X_transformed, transformer
@@ -171,7 +159,6 @@ def apply_pca(X, n_components=20, variance_threshold=0.95):
         Transformed features, PCA object, and variance info
     """
     if n_components == 'auto':
-        # Find number of components to explain variance_threshold of variance
         pca_full = PCA()
         pca_full.fit(X)
         cumsum_variance = np.cumsum(pca_full.explained_variance_ratio_)
@@ -191,10 +178,8 @@ def apply_pca(X, n_components=20, variance_threshold=0.95):
 
 
 def plot_pca_variance(variance_info):
-    """Plot PCA variance explained."""
     fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(14, 5))
 
-    # Individual variance
     ax1.bar(range(1, len(variance_info['explained_variance_ratio']) + 1),
             variance_info['explained_variance_ratio'],
             alpha=0.7, color='steelblue')
@@ -203,7 +188,6 @@ def plot_pca_variance(variance_info):
     ax1.set_title('Variance Explained per Component')
     ax1.grid(alpha=0.3)
 
-    # Cumulative variance
     ax2.plot(range(1, len(variance_info['cumulative_variance']) + 1),
              variance_info['cumulative_variance'],
              marker='o', linewidth=2, color='seagreen')
@@ -234,7 +218,7 @@ def remove_features(X, indices_to_remove):
     return X[:, mask]
 
 
-def get_feature_names(use_single_scale_lbp=True):
+def get_feature_names():
     """
     Get names for all features (52 optimized features).
 
@@ -243,33 +227,24 @@ def get_feature_names(use_single_scale_lbp=True):
     """
     names = []
 
-    # Color (6)
     names.extend(['hsv_mean_h', 'hsv_mean_s', 'hsv_mean_v',
                   'hsv_std_h', 'hsv_std_s', 'hsv_std_v'])
 
-    # Texture - LBP from extract_texture_features (16)
     names.extend([f'lbp_texture_bin{i}' for i in range(16)])
 
-    # Haralick (3)
     names.extend(['haralick_contrast', 'haralick_energy', 'haralick_homogeneity'])
 
-    # Shape (4)
     names.extend(['aspect_ratio', 'hu_moment_1', 'hu_moment_2', 'hu_moment_3'])
 
-    # Specular (2 - OPTIMIZED from 6)
     names.extend(['specular_highlight_contrast', 'specular_gradient_concentration'])
 
-    # Metal (1 - OPTIMIZED from 2)
     names.extend(['metal_reflection_directionality'])
 
-    # Glass (3 - OPTIMIZED from 4)
     names.extend(['glass_brightness_gradient', 'glass_high_freq_energy',
                   'glass_saturation_uniformity'])
 
-    # Trash (1 - OPTIMIZED from 4)
     names.extend(['trash_texture_chaos'])
 
-    # Single-scale LBP radius=2 (16) - ALWAYS single-scale
     names.extend([f'lbp_r2_bin{i}' for i in range(16)])
 
     return names
@@ -285,16 +260,8 @@ def get_single_scale_lbp_indices():
         List of 32 indices to remove
     """
     indices_to_remove = []
-
-    # Multi-scale LBP starts at index 37 (6+16+3+4+3+3+2 = 37)
     base_idx = 37
-
-    # Remove radius 1 (indices 37-52)
     indices_to_remove.extend(range(base_idx, base_idx + 16))
-
-    # Keep radius 2 (indices 53-68) - skip these
-
-    # Remove radius 3 (indices 69-84)
     indices_to_remove.extend(range(base_idx + 32, base_idx + 48))
 
     return indices_to_remove
@@ -318,19 +285,16 @@ def optimize_features(X, y, config):
     print("Starting feature optimization pipeline...")
     print(f"Initial features: {X.shape[1]}\n")
 
-    # Step 1: Remove multi-scale LBP if configured
     if config.get('use_single_scale_lbp', False):
         print("Step 1: Removing multi-scale LBP (keeping radius 2 only)...")
         indices_to_remove = get_single_scale_lbp_indices()
         X = remove_features(X, indices_to_remove)
-        # Update feature names
         feature_names = [name for i, name in enumerate(get_feature_names())
                         if i not in indices_to_remove]
         print(f"  Removed {len(indices_to_remove)} features")
         print(f"  Current features: {X.shape[1]}\n")
         optimization_steps.append(('single_scale_lbp', len(indices_to_remove)))
 
-    # Step 2: Correlation analysis
     if config.get('remove_correlated', False):
         print("Step 2: Analyzing feature correlations...")
         corr_threshold = config.get('correlation_threshold', 0.9)
@@ -346,7 +310,6 @@ def optimize_features(X, y, config):
             print(f"  Current features: {X.shape[1]}\n")
             optimization_steps.append(('correlation', len(redundant_indices)))
 
-    # Step 3: Box-Cox transformation
     if config.get('apply_box_cox', False):
         print("Step 3: Applying Box-Cox transformation to non-Gaussian features...")
         gaussianity = test_gaussianity(X, feature_names)
@@ -357,7 +320,6 @@ def optimize_features(X, y, config):
             print(f"  Transformed {gaussianity['num_non_gaussian']} features\n")
             optimization_steps.append(('box_cox', gaussianity['num_non_gaussian']))
 
-    # Step 4: PCA
     if config.get('apply_pca', False):
         print("Step 4: Applying PCA dimensionality reduction...")
         n_components = config.get('pca_components', 20)

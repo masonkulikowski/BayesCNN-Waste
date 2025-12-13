@@ -1,10 +1,3 @@
-"""
-CNN Model Architecture for Waste Classification.
-
-This module contains a custom CNN trained from scratch.
-"""
-
-import torch
 import torch.nn as nn
 
 
@@ -23,7 +16,6 @@ class CustomCNN(nn.Module):
     def __init__(self, num_classes=6, dropout=0.5):
         super(CustomCNN, self).__init__()
 
-        # Block 1: 3 -> 32 channels
         self.conv1 = nn.Sequential(
             nn.Conv2d(3, 32, kernel_size=3, padding=1),
             nn.BatchNorm2d(32),
@@ -31,10 +23,9 @@ class CustomCNN(nn.Module):
             nn.Conv2d(32, 32, kernel_size=3, padding=1),
             nn.BatchNorm2d(32),
             nn.ReLU(inplace=True),
-            nn.MaxPool2d(kernel_size=2, stride=2)  # 224 -> 112
+            nn.MaxPool2d(kernel_size=2, stride=2)
         )
 
-        # Block 2: 32 -> 64 channels
         self.conv2 = nn.Sequential(
             nn.Conv2d(32, 64, kernel_size=3, padding=1),
             nn.BatchNorm2d(64),
@@ -42,10 +33,9 @@ class CustomCNN(nn.Module):
             nn.Conv2d(64, 64, kernel_size=3, padding=1),
             nn.BatchNorm2d(64),
             nn.ReLU(inplace=True),
-            nn.MaxPool2d(kernel_size=2, stride=2)  # 112 -> 56
+            nn.MaxPool2d(kernel_size=2, stride=2)
         )
 
-        # Block 3: 64 -> 128 channels
         self.conv3 = nn.Sequential(
             nn.Conv2d(64, 128, kernel_size=3, padding=1),
             nn.BatchNorm2d(128),
@@ -53,10 +43,9 @@ class CustomCNN(nn.Module):
             nn.Conv2d(128, 128, kernel_size=3, padding=1),
             nn.BatchNorm2d(128),
             nn.ReLU(inplace=True),
-            nn.MaxPool2d(kernel_size=2, stride=2)  # 56 -> 28
+            nn.MaxPool2d(kernel_size=2, stride=2)
         )
 
-        # Block 4: 128 -> 256 channels
         self.conv4 = nn.Sequential(
             nn.Conv2d(128, 256, kernel_size=3, padding=1),
             nn.BatchNorm2d(256),
@@ -64,13 +53,11 @@ class CustomCNN(nn.Module):
             nn.Conv2d(256, 256, kernel_size=3, padding=1),
             nn.BatchNorm2d(256),
             nn.ReLU(inplace=True),
-            nn.MaxPool2d(kernel_size=2, stride=2)  # 28 -> 14
+            nn.MaxPool2d(kernel_size=2, stride=2)
         )
 
-        # Global average pooling
         self.gap = nn.AdaptiveAvgPool2d((1, 1))
 
-        # Classifier
         self.classifier = nn.Sequential(
             nn.Dropout(dropout),
             nn.Linear(256, 128),
@@ -79,11 +66,9 @@ class CustomCNN(nn.Module):
             nn.Linear(128, num_classes)
         )
 
-        # Initialize weights
         self._initialize_weights()
 
     def _initialize_weights(self):
-        """Initialize model weights using He initialization."""
         for m in self.modules():
             if isinstance(m, nn.Conv2d):
                 nn.init.kaiming_normal_(m.weight, mode='fan_out', nonlinearity='relu')
@@ -97,7 +82,6 @@ class CustomCNN(nn.Module):
                 nn.init.constant_(m.bias, 0)
 
     def forward(self, x):
-        """Forward pass through the network."""
         x = self.conv1(x)
         x = self.conv2(x)
         x = self.conv3(x)
@@ -125,9 +109,7 @@ def create_custom_cnn(num_classes=6, dropout=0.5):
     print(f"  Output classes: {num_classes}")
 
     model = CustomCNN(num_classes=num_classes, dropout=dropout)
-    print(f"  [Model] Custom CNN created")
 
-    # Count parameters
     total_params = sum(p.numel() for p in model.parameters())
     trainable_params = sum(p.numel() for p in model.parameters() if p.requires_grad)
 
@@ -135,7 +117,6 @@ def create_custom_cnn(num_classes=6, dropout=0.5):
     print(f"  [Model] Trainable parameters: {trainable_params:,}")
     print(f"  [Model] Model size: ~{total_params * 4 / 1024 / 1024:.2f} MB")
 
-    # Print architecture summary
     print(f"\n  [Model] Architecture Summary:")
     print(f"    Input: 3x224x224")
     print(f"    Conv Block 1: 32 channels -> 112x112")

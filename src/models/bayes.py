@@ -71,7 +71,6 @@ class BayesFeatureExtractor:
         image_rgb = self._to_rgb_image(image)
         hsv = cv2.cvtColor(image_rgb, cv2.COLOR_RGB2HSV)
 
-        # Mean and std for each channel
         mean_hsv = np.mean(hsv, axis=(0, 1))
         std_hsv = np.std(hsv, axis=(0, 1))
 
@@ -87,7 +86,6 @@ class BayesFeatureExtractor:
         gray = self._to_gray(image)
         gray_uint8 = self._to_gray_uint8(image)
 
-        # 1. Local Binary Pattern (LBP)
         lbp = local_binary_pattern(
             gray_uint8,
             P=self.lbp_points,
@@ -95,7 +93,6 @@ class BayesFeatureExtractor:
             method='uniform'
         )
 
-        # LBP histogram
         lbp_hist, _ = np.histogram(
             lbp.ravel(),
             bins=self.lbp_bins,
@@ -103,8 +100,6 @@ class BayesFeatureExtractor:
             density=True
         )
 
-        # 2. Haralick texture features from Gray Level Co-occurrence Matrix (GLCM)
-        # Compute GLCM
         glcm = graycomatrix(
             gray_uint8,
             distances=[1],
@@ -114,7 +109,6 @@ class BayesFeatureExtractor:
             normed=True
         )
 
-        # Extract Haralick features (averaged over all angles)
         contrast = graycoprops(glcm, 'contrast').mean()
         energy = graycoprops(glcm, 'energy').mean()
         homogeneity = graycoprops(glcm, 'homogeneity').mean()
@@ -132,18 +126,13 @@ class BayesFeatureExtractor:
         """
         image_np = self._to_numpy(image)
 
-        # 1. Aspect ratio
         height, width = image_np.shape[:2]
         aspect_ratio = width / height if height > 0 else 1.0
 
-        # 2. Hu moments (use first 3 for simplicity)
-        # Convert to grayscale for moment calculation
         gray_uint8 = self._to_gray_uint8(image_np)
 
-        # Calculate Hu moments
         hu = moments_hu(gray_uint8)
 
-        # Use first 3 Hu moments (log-transform for numerical stability)
         hu_features = -np.sign(hu[:3]) * np.log10(np.abs(hu[:3]) + 1e-10)
 
         return np.concatenate([[aspect_ratio], hu_features])
@@ -159,13 +148,11 @@ class BayesFeatureExtractor:
         """
         image_rgb = self._to_rgb_image(image)
         hsv = cv2.cvtColor(image_rgb, cv2.COLOR_RGB2HSV)
-        value_channel = hsv[:, :, 2].astype(float) / 255.0  # Normalize to [0, 1]
+        value_channel = hsv[:, :, 2].astype(float) / 255.0
         gray = self._to_gray(image_rgb)
 
-        # 1. Bright pixel ratio (pixels with V > 0.85)
         bright_mask = value_channel > 0.85
 
-        # Highlight contrast (mean gradient magnitude in bright regions)
         grad_x = cv2.Sobel(gray, cv2.CV_64F, 1, 0, ksize=3)
         grad_y = cv2.Sobel(gray, cv2.CV_64F, 0, 1, ksize=3)
         grad_magnitude = np.sqrt(grad_x**2 + grad_y**2)
@@ -175,7 +162,6 @@ class BayesFeatureExtractor:
         else:
             highlight_contrast = 0.0
 
-        # Gradient concentration: ratio of top 10% gradients to mean gradient
         grad_flat = grad_magnitude.flatten()
         if len(grad_flat) > 0:
             top_10_percent_threshold = np.percentile(grad_flat, 90)
@@ -189,7 +175,6 @@ class BayesFeatureExtractor:
         else:
             gradient_concentration = 0.0
 
-        # Return only the 2 most discriminative features
         return np.array([
             highlight_contrast,
             gradient_concentration
@@ -209,7 +194,6 @@ class BayesFeatureExtractor:
         gray_uint8 = self._to_gray_uint8(image_rgb)
         hsv = cv2.cvtColor(image_rgb, cv2.COLOR_RGB2HSV)
 
-        # 1. Brightness gradient smoothness - glass shows smooth center-to-edge transitions
         h, w = gray_uint8.shape
         center = gray_uint8[h//4:3*h//4, w//4:3*w//4].mean()
         edges_brightness = np.concatenate([
@@ -222,13 +206,11 @@ class BayesFeatureExtractor:
         else:
             brightness_gradient_smoothness = 0.0
 
-        # 2. High-frequency texture energy via FFT - glass has minimal high-freq content
         f_transform = np.fft.fft2(gray)
         f_shift = np.fft.fftshift(f_transform)
         magnitude = np.abs(f_shift)
         h, w = magnitude.shape
 
-        # Create mask for high frequencies (outer 30% of spectrum)
         cy, cx = h // 2, w // 2
         y, x = np.ogrid[:h, :w]
         radius_sq = (0.3 * min(h, w)) ** 2
@@ -236,7 +218,6 @@ class BayesFeatureExtractor:
 
         high_freq_energy = np.sum(magnitude * mask) / (np.sum(magnitude) + 1e-6)
 
-        # 3. Saturation uniformity - glass has consistently low saturation
         saturation = hsv[:, :, 1].astype(float) / 255.0
         saturation_uniformity = 1.0 / (np.std(saturation) + 0.01)
 
@@ -257,7 +238,6 @@ class BayesFeatureExtractor:
         """
         gray_uint8 = self._to_gray_uint8(image)
 
-        # Texture chaos - variance of LBP across quadrants (trash = mixed textures)
         h, w = gray_uint8.shape
         quadrants = [
             gray_uint8[0:h//2, 0:w//2],
@@ -287,12 +267,10 @@ class BayesFeatureExtractor:
         """
         gray_uint8 = self._to_gray_uint8(image)
 
-        # Reflection directionality - metallic reflections have dominant orientations
         grad_x = cv2.Sobel(gray_uint8, cv2.CV_64F, 1, 0, ksize=3)
         grad_y = cv2.Sobel(gray_uint8, cv2.CV_64F, 0, 1, ksize=3)
         angles = np.arctan2(grad_y, grad_x)
 
-        # Metallic reflections have dominant orientations
         hist, _ = np.histogram(angles, bins=36, range=(-np.pi, np.pi))
         reflection_directionality = np.max(hist) / (np.sum(hist) + 1e-6)
 
@@ -311,12 +289,10 @@ class BayesFeatureExtractor:
 
         h, w = value_channel.shape
 
-        # 1. Left-right brightness variance difference
         left_half = value_channel[:, :w//2]
         right_half = value_channel[:, w//2:]
         lr_brightness_var_diff = np.var(left_half) - np.var(right_half)
 
-        # 2. Top-bottom brightness variance difference
         top_half = value_channel[:h//2, :]
         bottom_half = value_channel[h//2:, :]
         tb_brightness_var_diff = np.var(top_half) - np.var(bottom_half)
@@ -344,7 +320,6 @@ class BayesFeatureExtractor:
             method='uniform'
         )
 
-        # Histogram with 16 bins
         hist, _ = np.histogram(
             lbp.ravel(),
             bins=self.lbp_bins,
@@ -375,25 +350,25 @@ class BayesFeatureExtractor:
         Returns:
             Feature vector (52 features)
         """
-        color_feat = self.extract_color_features(image)           # 6
-        texture_feat = self.extract_texture_features(image)       # 19
-        shape_feat = self.extract_shape_features(image)           # 4
-        specular_feat = self.extract_specular_features(image)     # 2 (optimized)
-        metal_feat = self.extract_metal_features(image)           # 1 (optimized)
-        glass_feat = self.extract_glass_features(image)           # 3 (optimized)
-        trash_feat = self.extract_trash_features(image)           # 1 (optimized)
-        lbp_feat = self.extract_single_scale_lbp(image, radius=2) # 16
+        color_feat = self.extract_color_features(image)
+        texture_feat = self.extract_texture_features(image)
+        shape_feat = self.extract_shape_features(image)
+        specular_feat = self.extract_specular_features(image)
+        metal_feat = self.extract_metal_features(image)
+        glass_feat = self.extract_glass_features(image)
+        trash_feat = self.extract_trash_features(image)
+        lbp_feat = self.extract_single_scale_lbp(image, radius=2)
 
         return np.concatenate([
-            color_feat,     # 6
-            texture_feat,   # 19
-            shape_feat,     # 4
-            specular_feat,  # 2
-            metal_feat,     # 1
-            glass_feat,     # 3
-            trash_feat,     # 1
-            lbp_feat        # 16
-        ])  # Total: 52 features
+            color_feat,
+            texture_feat,
+            shape_feat,
+            specular_feat,
+            metal_feat,
+            glass_feat,
+            trash_feat,
+            lbp_feat
+        ])
 
     def augment_image(self, image):
         """
@@ -408,26 +383,21 @@ class BayesFeatureExtractor:
         import random
         from PIL import ImageEnhance
 
-        # Convert to PIL if needed
         if not isinstance(image, Image.Image):
             image = Image.fromarray(image)
 
-        # Random rotation (-15 to +15 degrees)
         if random.random() > 0.5:
             angle = random.uniform(-15, 15)
             image = image.rotate(angle, fillcolor=(128, 128, 128))
 
-        # Random horizontal flip
         if random.random() > 0.5:
             image = image.transpose(Image.FLIP_LEFT_RIGHT)
 
-        # Random brightness (0.8 to 1.2)
         if random.random() > 0.5:
             enhancer = ImageEnhance.Brightness(image)
             factor = random.uniform(0.8, 1.2)
             image = enhancer.enhance(factor)
 
-        # Random contrast (0.8 to 1.2)
         if random.random() > 0.5:
             enhancer = ImageEnhance.Contrast(image)
             factor = random.uniform(0.8, 1.2)
@@ -458,16 +428,13 @@ class BayesFeatureExtractor:
             else:
                 image, label = item
 
-            # Resize to standard size
             if isinstance(image, Image.Image):
                 image = image.resize((self.image_size, self.image_size))
 
-            # Extract features from original image
             features = self.extract_features(image)
             features_list.append(features)
             labels_list.append(label)
 
-            # Apply augmentation if requested
             if augment:
                 for _ in range(augment_factor):
                     aug_image = self.augment_image(image)
@@ -494,7 +461,6 @@ class BayesClassifier:
         self.feature_extractor = BayesFeatureExtractor(config)
         self.use_balanced_priors = use_balanced_priors
 
-        # Get optimization settings from config
         bayes_config = config.get('bayes', {})
         self.use_multinomial = bayes_config.get('use_multinomial', False)
         self.use_ovr = bayes_config.get('use_ovr', False)
@@ -504,30 +470,23 @@ class BayesClassifier:
         self.remove_correlated = bayes_config.get('remove_correlated', False)
         self.correlation_threshold = bayes_config.get('correlation_threshold', 0.85)
 
-        # Track which features to keep after correlation removal
         self.feature_mask = None
         self.kept_feature_indices = None
 
-        # Initialize appropriate scaler
         if self.use_multinomial:
-            # MultinomialNB requires non-negative features
             self.scaler = MinMaxScaler()
         else:
             self.scaler = StandardScaler()
 
-        # Initialize PCA if needed
         self.pca = None
         if self.apply_pca:
             self.pca = PCA(n_components=self.pca_components)
 
-        # Initialize Box-Cox transformer if needed
         self.box_cox_transformer = None
         if self.apply_box_cox:
             self.box_cox_transformer = PowerTransformer(method='yeo-johnson', standardize=False)
 
-        # Initialize base model with balanced priors if requested
         if self.use_multinomial:
-            # MultinomialNB doesn't support priors parameter the same way
             base_model = MultinomialNB()
         else:
             if use_balanced_priors:
@@ -537,7 +496,6 @@ class BayesClassifier:
             else:
                 base_model = GaussianNB()
 
-        # Wrap in One-vs-Rest if requested
         if self.use_ovr:
             self.model = OneVsRestClassifier(base_model)
         else:
@@ -559,7 +517,6 @@ class BayesClassifier:
         Returns:
             self
         """
-        # Check if augmentation is enabled
         if use_augmentation is None:
             use_augmentation = self.config.get('augmentation', {}).get('enabled', False)
 
@@ -571,7 +528,6 @@ class BayesClassifier:
             else:
                 print("Extracting features from training data...")
 
-        # Extract features from training data
         X_train, y_train = self.feature_extractor.extract_features_batch(
             train_dataset,
             desc="Training features",
@@ -582,15 +538,12 @@ class BayesClassifier:
         if verbose:
             print(f"Feature shape: {X_train.shape}")
 
-        # Apply transformations
         X_transformed = X_train
 
-        # 1. Correlation-based feature removal (if enabled)
         if self.remove_correlated:
             if verbose:
                 print(f"Removing correlated features (threshold={self.correlation_threshold})...")
 
-            # First, check for and remove zero-variance features
             feature_variances = np.var(X_transformed, axis=0)
             zero_var_mask = feature_variances < 1e-10
 
@@ -600,17 +553,13 @@ class BayesClassifier:
                     print(f"  Warning: Found {len(zero_var_indices)} zero-variance features")
                     print(f"  Removing zero-variance features before correlation analysis...")
 
-                # Remove zero-variance features
                 non_zero_var_mask = ~zero_var_mask
                 X_transformed = X_transformed[:, non_zero_var_mask]
 
-                # Initialize feature mask to track all removals
                 self.feature_mask = non_zero_var_mask.copy()
             else:
-                # No zero-variance features, initialize full mask
                 self.feature_mask = np.ones(X_transformed.shape[1], dtype=bool)
 
-            # Analyze correlations on remaining features
             from src.models.feature_optimizer import analyze_feature_correlations, get_redundant_features
             corr_analysis = analyze_feature_correlations(
                 X_transformed,
@@ -620,15 +569,11 @@ class BayesClassifier:
             if corr_analysis['num_redundant'] > 0:
                 redundant_indices = get_redundant_features(corr_analysis, self.correlation_threshold)
 
-                # Create a temporary mask for the current features
                 temp_mask = np.ones(X_transformed.shape[1], dtype=bool)
                 temp_mask[redundant_indices] = False
 
-                # Remove correlated features
                 X_transformed = X_transformed[:, temp_mask]
 
-                # Update the global feature mask
-                # Map temp_mask back to original feature space
                 current_kept_indices = np.where(self.feature_mask)[0]
                 features_to_remove = current_kept_indices[redundant_indices]
                 self.feature_mask[features_to_remove] = False
@@ -650,19 +595,16 @@ class BayesClassifier:
 
                 self.kept_feature_indices = np.where(self.feature_mask)[0]
 
-        # 2. Box-Cox transformation (if enabled)
         if self.apply_box_cox:
             if verbose:
                 print("Applying Box-Cox transformation...")
             X_transformed = self.box_cox_transformer.fit_transform(X_transformed)
 
-        # 3. Standardize/normalize features
         if verbose:
             scaler_name = "MinMax scaling" if self.use_multinomial else "Standardizing"
             print(f"{scaler_name} features...")
         X_transformed = self.scaler.fit_transform(X_transformed)
 
-        # 3. PCA dimensionality reduction (if enabled)
         if self.apply_pca:
             if verbose:
                 print(f"Applying PCA (reducing to {self.pca_components} components)...")
@@ -680,11 +622,9 @@ class BayesClassifier:
             if self.use_ovr:
                 print(f"  Using One-vs-Rest ensemble ({len(self.class_names)} binary classifiers)")
 
-        # Train Naive Bayes
         self.model.fit(X_transformed, y_train)
         self.is_fitted = True
 
-        # Compute training accuracy
         if verbose:
             y_train_pred = self.model.predict(X_transformed)
             train_accuracy = np.mean(y_train_pred == y_train)
@@ -697,19 +637,14 @@ class BayesClassifier:
         """Apply all learned transformations to features."""
         X_transformed = X
 
-        # Apply transformations in same order as training
-        # 1. Correlation removal
         if self.feature_mask is not None:
             X_transformed = X_transformed[:, self.feature_mask]
 
-        # 2. Box-Cox
         if self.apply_box_cox and self.box_cox_transformer is not None:
             X_transformed = self.box_cox_transformer.transform(X_transformed)
 
-        # 3. Scaling
         X_transformed = self.scaler.transform(X_transformed)
 
-        # 4. PCA
         if self.apply_pca and self.pca is not None:
             X_transformed = self.pca.transform(X_transformed)
 
@@ -725,7 +660,6 @@ class BayesClassifier:
             y_proba: Prediction probabilities
             log_file: File path to write logs (None = stdout)
         """
-        # Open file or use stdout
         if log_file:
             log_file = Path(log_file)
             log_file.parent.mkdir(parents=True, exist_ok=True)
@@ -739,20 +673,17 @@ class BayesClassifier:
             f.write(f"Timestamp: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n")
             f.write(f"{'='*130}\n")
 
-            # Header
             header = f"{'Idx':<6} | {'True':<12} | {'Pred':<12} | {'Result':<8} |"
             for cls in self.class_names:
                 header += f" {cls:<10} |"
             f.write(header + "\n")
             f.write("-" * 130 + "\n")
 
-            # Per-image predictions
             for i in range(len(y_true)):
                 true_class = self.class_names[y_true[i]]
                 pred_class = self.class_names[y_pred[i]]
                 is_correct = "ok" if y_true[i] == y_pred[i] else "fail"
 
-                # Format probabilities
                 proba_str = ""
                 for j, prob in enumerate(y_proba[i]):
                     proba_str += f" {prob:>9.4f} |"
@@ -761,7 +692,6 @@ class BayesClassifier:
 
             f.write(f"{'='*130}\n")
 
-            # Summary statistics
             accuracy = np.mean(y_true == y_pred)
             f.write(f"\nSummary:\n")
             f.write(f"  Total samples: {len(y_true)}\n")
@@ -789,16 +719,13 @@ class BayesClassifier:
         if not self.is_fitted:
             raise RuntimeError("Model must be fitted before prediction")
 
-        # Extract features
         X, _ = self.feature_extractor.extract_features_batch(
             dataset,
             desc="Extracting features"
         )
 
-        # Apply transformations
         X_transformed = self._transform_features(X)
 
-        # Predict
         return self.model.predict(X_transformed)
 
     def predict_proba(self, dataset):
@@ -814,16 +741,13 @@ class BayesClassifier:
         if not self.is_fitted:
             raise RuntimeError("Model must be fitted before prediction")
 
-        # Extract features
         X, _ = self.feature_extractor.extract_features_batch(
             dataset,
             desc="Extracting features"
         )
 
-        # Apply transformations
         X_transformed = self._transform_features(X)
 
-        # Predict probabilities
         return self.model.predict_proba(X_transformed)
 
     def evaluate(self, dataset, verbose=True, log_predictions=False, log_file=None):
@@ -842,36 +766,29 @@ class BayesClassifier:
         if not self.is_fitted:
             raise RuntimeError("Model must be fitted before evaluation")
 
-        # Extract features and true labels
         X, y_true = self.feature_extractor.extract_features_batch(
             dataset,
             desc="Extracting features for evaluation"
         )
 
-        # Apply transformations
         X_transformed = self._transform_features(X)
 
-        # Predict
         y_pred = self.model.predict(X_transformed)
         y_proba = self.model.predict_proba(X_transformed)
 
-        # Log individual predictions if requested
         if log_predictions:
             self._log_predictions(y_true, y_pred, y_proba, log_file=log_file)
 
-        # Compute metrics
         accuracy = accuracy_score(y_true, y_pred)
         precision, recall, f1, _ = precision_recall_fscore_support(
             y_true, y_pred, average='weighted', zero_division=0
         )
 
-        # Per-class metrics
         precision_per_class, recall_per_class, f1_per_class, support = \
             precision_recall_fscore_support(
                 y_true, y_pred, average=None, zero_division=0
             )
 
-        # Confusion matrix
         cm = confusion_matrix(y_true, y_pred)
 
         results = {
@@ -954,10 +871,10 @@ class BayesClassifier:
         classifier = cls(model_data['config'])
         classifier.model = model_data['model']
         classifier.scaler = model_data['scaler']
-        classifier.pca = model_data.get('pca', None)  # Backwards compatible
-        classifier.box_cox_transformer = model_data.get('box_cox_transformer', None)  # Backwards compatible
-        classifier.feature_mask = model_data.get('feature_mask', None)  # Backwards compatible
-        classifier.kept_feature_indices = model_data.get('kept_feature_indices', None)  # Backwards compatible
+        classifier.pca = model_data.get('pca', None)
+        classifier.box_cox_transformer = model_data.get('box_cox_transformer', None)
+        classifier.feature_mask = model_data.get('feature_mask', None)
+        classifier.kept_feature_indices = model_data.get('kept_feature_indices', None)
         classifier.is_fitted = model_data['is_fitted']
 
         print(f"Model loaded from {filepath}")

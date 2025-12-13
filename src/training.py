@@ -1,13 +1,6 @@
-"""
-Training utilities for CNN models.
-
-This module contains training loop, validation, early stopping, and related utilities.
-"""
-
 import torch
 import torch.nn as nn
 import torch.optim as optim
-from tqdm.auto import tqdm
 import copy
 from pathlib import Path
 
@@ -86,12 +79,10 @@ def train_epoch(model, dataloader, criterion, optimizer, device):
         data_load_time = time.time() - batch_start
         data_load_times.append(data_load_time)
 
-        # Move to device
         transfer_start = time.time()
         images, labels = images.to(device), labels.to(device)
         transfer_time = time.time() - transfer_start
 
-        # Forward pass
         forward_start = time.time()
         optimizer.zero_grad()
         outputs = model(images)
@@ -99,7 +90,6 @@ def train_epoch(model, dataloader, criterion, optimizer, device):
         forward_time = time.time() - forward_start
         forward_times.append(forward_time)
 
-        # Backward pass
         backward_start = time.time()
         try:
             loss.backward()
@@ -111,7 +101,6 @@ def train_epoch(model, dataloader, criterion, optimizer, device):
         backward_time = time.time() - backward_start
         backward_times.append(backward_time)
 
-        # Stats
         running_loss += loss.item() * images.size(0)
         _, predicted = torch.max(outputs, 1)
         total += labels.size(0)
@@ -120,7 +109,6 @@ def train_epoch(model, dataloader, criterion, optimizer, device):
         batch_time = time.time() - batch_start
         batch_times.append(batch_time)
 
-        # Log first and every 10th batch
         if batch_idx == 0:
             print(f"  [Train] Batch 0/{len(dataloader)}: {batch_time:.2f}s (data: {data_load_time:.2f}s, fwd: {forward_time:.3f}s, bwd: {backward_time:.3f}s)")
         elif (batch_idx + 1) % 10 == 0:
@@ -133,7 +121,6 @@ def train_epoch(model, dataloader, criterion, optimizer, device):
     epoch_acc = 100 * correct / total
     epoch_time = time.time() - epoch_start
 
-    # Print epoch summary
     print(f"  [Train] Epoch complete in {epoch_time:.2f}s")
     print(f"    Avg batch time: {sum(batch_times)/len(batch_times):.3f}s")
     print(f"    Avg data load: {sum(data_load_times)/len(data_load_times):.3f}s")
@@ -179,7 +166,6 @@ def validate(model, dataloader, criterion, device):
             total += labels.size(0)
             correct += (predicted == labels).sum().item()
 
-            # Log every 5th batch
             if (batch_idx + 1) % 5 == 0:
                 print(f"  [Val] Batch {batch_idx + 1}/{len(dataloader)}: loss: {loss.item():.4f}, acc: {100 * correct / total:.2f}%")
 
@@ -217,10 +203,8 @@ def train_model(model, train_loader, val_loader, config, model_name='model', dev
     transfer_time = time.time() - transfer_start
     print(f"[Training] Model transferred to device in {transfer_time:.3f}s")
 
-    # Loss function
     criterion = nn.CrossEntropyLoss()
 
-    # Optimizer
     if config['training']['optimizer'] == 'adam':
         optimizer = optim.Adam(
             model.parameters(),
@@ -235,7 +219,6 @@ def train_model(model, train_loader, val_loader, config, model_name='model', dev
             weight_decay=config['training']['weight_decay']
         )
 
-    # Learning rate scheduler
     scheduler = None
     if config['training']['scheduler']['enabled']:
         scheduler = optim.lr_scheduler.StepLR(
@@ -244,7 +227,6 @@ def train_model(model, train_loader, val_loader, config, model_name='model', dev
             gamma=config['training']['scheduler']['gamma']
         )
 
-    # Early stopping
     early_stopping = None
     if config['training']['early_stopping']['enabled']:
         early_stopping = EarlyStopping(
@@ -253,7 +235,6 @@ def train_model(model, train_loader, val_loader, config, model_name='model', dev
             verbose=True
         )
 
-    # Training history
     history = {
         'train_loss': [],
         'train_acc': [],
@@ -262,7 +243,6 @@ def train_model(model, train_loader, val_loader, config, model_name='model', dev
         'learning_rates': []
     }
 
-    # Training loop
     num_epochs = config['training']['epochs']
     best_val_acc = 0.0
 
@@ -278,31 +258,25 @@ def train_model(model, train_loader, val_loader, config, model_name='model', dev
         print(f"\nEpoch {epoch+1}/{num_epochs}")
         print('-' * 60)
 
-        # Train
         train_loss, train_acc = train_epoch(model, train_loader, criterion, optimizer, device)
 
-        # Validate
         val_loss, val_acc = validate(model, val_loader, criterion, device)
 
-        # Update learning rate
         current_lr = optimizer.param_groups[0]['lr']
         if scheduler is not None:
             scheduler.step()
 
-        # Save history
         history['train_loss'].append(train_loss)
         history['train_acc'].append(train_acc)
         history['val_loss'].append(val_loss)
         history['val_acc'].append(val_acc)
         history['learning_rates'].append(current_lr)
 
-        # Print epoch summary
         print(f"\nEpoch {epoch+1} Summary:")
         print(f"  Train Loss: {train_loss:.4f} | Train Acc: {train_acc:.2f}%")
         print(f"  Val Loss:   {val_loss:.4f} | Val Acc:   {val_acc:.2f}%")
         print(f"  LR: {current_lr:.6f}")
 
-        # Save best model
         if save_best and val_acc > best_val_acc:
             best_val_acc = val_acc
             model_path = Path(config['paths']['models_dir']) / f"{model_name}_best.pth"
@@ -314,14 +288,13 @@ def train_model(model, train_loader, val_loader, config, model_name='model', dev
                 'val_loss': val_loss,
                 'config': config
             }, model_path)
-            print(f"  ✓ Best model saved (Val Acc: {val_acc:.2f}%)")
+            print(f"Best model saved (Val Acc: {val_acc:.2f}%)")
 
-        # Early stopping
         if early_stopping is not None:
             early_stopping(val_loss, model)
             if early_stopping.early_stop:
-                print(f"\n⚠ Early stopping triggered at epoch {epoch+1}")
-                print(f"  Loading best model weights...")
+                print(f"\nEarly stopping triggered at epoch {epoch+1}")
+                print(f"Loading best model weights...")
                 early_stopping.load_best_model(model)
                 break
 

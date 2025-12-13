@@ -1,8 +1,5 @@
 from datasets import load_dataset
-from torch.utils.data import DataLoader, Dataset
-import torch
-from PIL import Image
-import numpy as np
+from torch.utils.data import Dataset
 from pathlib import Path
 import sys
 
@@ -32,11 +29,10 @@ class TrashNetDataset(Dataset):
         self.dataset = dataset
         self.transform = transform
         self.cache_images = cache_images
-        self._cache = {}  # Image cache for faster loading
+        self._cache = {}
 
         if cache_images:
             print(f"[Dataset] Caching enabled - preprocessing {len(dataset)} images...")
-            # Pre-cache all images (good for small datasets)
             for idx in range(len(dataset)):
                 item = self.dataset[idx]
                 image = item['image']
@@ -49,7 +45,6 @@ class TrashNetDataset(Dataset):
         return len(self.dataset)
 
     def __getitem__(self, index):
-        # Use cached image if available
         if index in self._cache:
             image = self._cache[index]
         else:
@@ -60,7 +55,6 @@ class TrashNetDataset(Dataset):
 
         label = self.dataset[index]['label']
 
-        # Apply transforms
         if self.transform:
             image = self.transform(image)
 
